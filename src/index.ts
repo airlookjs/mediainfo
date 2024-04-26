@@ -1,50 +1,40 @@
 import fs from 'fs'
 import os from 'os'
-import url from 'url'
 import path from 'path'
-import express from 'express'
-import cors from 'cors'
+import express, { type Request, type Response } from 'express'
+import createError from 'http-errors'
+import {stringIsAValidUrl} from './validateUrl.js'
 
+import cors from 'cors'
 // TODO: conditionally enable prometheus
 //import prometheus from 'prom-client'
 
 import { config } from './config.js'
-import { getMediainfo } from './mediainfo.js'
+import { OutputFormats, OutputFormatKeys, getMediainfo } from './mediainfo.js'
+const HOSTNAME = os.hostname()
 
 const server = express()
 
-const collectDefaultMetrics = prometheus.collectDefaultMetrics
+// const collectDefaultMetrics = prometheus.collectDefaultMetrics
 // Probe every 10th second.
-collectDefaultMetrics({ timeout: 10000 })
-
-const HOSTNAME = os.hostname()
-
+// collectDefaultMetrics({ timeout: 10000 })
+server.use(express.json())
 server.use(cors())
 
-// eslint-disable-next-line no-unused-vars
 server.get(`${config.route}/:path(*)`, async (req, res, next) => {
 	console.log('Processing request', req.url, '->', req.params.path)
 
 	let error = null
-
 	let foundMatchingMountedFile = false
-
 	const pathParam = req.params.path
 
-	// process outputFormat query parameter
+    const outputFormatParam = req.query.outputFormat || config.defaultOutputFormatName
+    if(typeof outputFormatParam !== 'string' || !(outputFormatParam in OutputFormats)){
+        return next(createError(400, `Invalid outputFormat: ${outputFormatParam}`))
+    }
+    const outputFormat = outputFormatParam as OutputFormatKeys
+	console.info('Using outputFormat', outputFormat)
 
-	const outputFormatQS = req.query.outputFormat || config.defaultOutputFormatName
-	let outputFormat = {}
-
-	if (config.outputFormats.map((f) => f.name).includes(outputFormatQS)) {
-		outputFormat = config.outputFormats.find((f) => f.name === outputFormatQS)
-		console.info('Using outputFormat', outputFormat)
-	} else {
-		error = `Invalid outputFormat: ${outputFormatQS}`
-		console.error(error)
-		next(new Error(error))
-		return
-	}
 
 	if (pathParam) {
 		// check if file is matched by a share and if so, run the mediainfo analysis
@@ -68,8 +58,7 @@ server.get(`${config.route}/:path(*)`, async (req, res, next) => {
 						)
 
 						let sentCachedResult = false
-
-						if (share.cached && outputFormat.name == config.defaultOutputFormatName) {
+						if (share.cached && outputFormat == config.defaultOutputFormatName) {
 							// check if mediainfo data is cached on drive
 							if (fs.existsSync(jsonFilePath)) {
 								try {
@@ -105,7 +94,7 @@ server.get(`${config.route}/:path(*)`, async (req, res, next) => {
 								error = data.error
 								next(data.error)
 							} else {
-								if (share.cached && outputFormat.name == config.defaultOutputFormatName) {
+								if (share.cached && outputFormat == config.defaultOutputFormatName) {
 									// create cache folder if it doesn't exist
 									try {
 										if (!fs.existsSync(jsonFolderPath)) {
@@ -122,10 +111,10 @@ server.get(`${config.route}/:path(*)`, async (req, res, next) => {
 										console.error('Error writing mediainfo file', err)
 									}
 								}
-								if (outputFormat.format == 'JSON') {
+								if (OutputFormats[outputFormat][1] == 'JSON') {
 									data.version = config.version
 									res.json(data)
-								} else if (outputFormat.format == 'XML') {
+								} else if (OutputFormats[outputFormat][1] == 'XML') {
 									res.set('Content-Type', 'text/xml')
 									res.send(data)
 								} else {
@@ -145,20 +134,6 @@ server.get(`${config.route}/:path(*)`, async (req, res, next) => {
 
 		if (!foundMatchingMountedFile && pathParam.indexOf('http') === 0) {
 			// Media file is not mounted, attempt using URL
-
-			const stringIsAValidUrl = (s, protocols) => {
-				try {
-					new url.URL(s)
-					const parsed = url.parse(s)
-					return protocols
-						? parsed.protocol
-							? protocols.map((x) => `${x.toLowerCase()}:`).includes(parsed.protocol)
-							: false
-						: true
-				} catch (err) {
-					return false
-				}
-			}
 
 			try {
 				if (stringIsAValidUrl(pathParam, ['http', 'https'])) {
@@ -181,6 +156,7 @@ server.get(`${config.route}/:path(*)`, async (req, res, next) => {
 						}
 					}
 				}
+
 			} catch (error) {
 				console.error(error)
 				next(error)
@@ -199,41 +175,16 @@ server.get(`${config.route}/:path(*)`, async (req, res, next) => {
 	}
 })
 
-/*
-const checks = 
-    config.shares.map(share => {
-        return {
-            name: `Connection to ${share.name} Storage`,
-            description: `Is directory readable at ${share.mount}`,
-            checkFn: function() {
-                if (!fs.existsSync(share.mount)) {
-                    throw new Error(`${share.name} storage share at ${share.mount} could not be accessed.`)
-                }
-            }
-        }
-    });
-
-server.use('/status', getExpressHealthRoute(checks));
-*/
-
-server.get('/', function (req, res) {
+server.get('/',  (_req, res) => {
 	res.send('MediaInfo is running')
 })
 
-/*server.get('/metrics', function (req, res) {
-	res.send(prometheus.register.metrics())
-})*/
-
 // Fallthrough error handler
-// eslint-disable-next-line no-unused-vars
-server.use(function onError(err, req, res, next) {
-	// The error id is attached to `res.sentry` to be returned
-	// and optionally displayed to the user for support.
+server.use((err: Error, _req: Request, res: Response) => {
 	res.statusCode = 500
 	res.json({ error: err.message })
-	//res.end(err + "\n" + "Report this Sentry ID to the developers: " + res.sentry + '\n');
 })
 
-server.listen(config.port, function () {
-	console.log(`MediaInfo ${config.version} scanner listening on ${HOSTNAME}:${config.port}`)
+server.listen(config.port,  async() => {
+	console.log(`MediaInfo ${config.version} server listening on ${HOSTNAME}:${config.port}`)
 })

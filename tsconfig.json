@@ -6,6 +6,9 @@
       "outDir": "dist",
       "removeComments": true,
       "target": "ES6", 
+      "types": [
+        "node"
+      ],
       "baseUrl": "./", 
       "esModuleInterop": true,
       "moduleResolution": "node", 
@@ -19,7 +22,8 @@
       "noImplicitReturns": true,
       "noUncheckedIndexedAccess": true,
       "noUnusedLocals": true,
-      "noUnusedParameters": true
+      "noUnusedParameters": true,
+      "forceConsistentCasingInFileNames": true
     },
     "include": ["./src/**/*.ts"],
     "exclude": [
