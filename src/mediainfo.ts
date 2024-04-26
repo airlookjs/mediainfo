@@ -15,6 +15,15 @@ export const OutputFormats = {
 export type OutputFormatKeys = keyof typeof OutputFormats
 const cmd = 'mediainfo'
 
+type MediaInfo = object/*{
+    version: string
+    media: {
+        track: {
+            [key: string]: string
+        }[]
+    }[]
+}*/
+
 export async function getMediainfo(file: string, outputFormatKey: OutputFormatKeys) {
 
     const [value, format] = OutputFormats[outputFormatKey]
@@ -26,13 +35,12 @@ export async function getMediainfo(file: string, outputFormatKey: OutputFormatKe
 
 	if (stderr) {
 		console.error('exec stderr', stderr)
-		return { error: stderr }
-	} else {
-		let data = stdout
-		if (format == 'JSON') {
-			data = JSON.parse(stdout)
-			return { mediainfo: data }
-		}
-		return data
+        throw new Error(stderr)
+    }
+
+	if (format == 'JSON') {
+		return JSON.parse(stdout) as MediaInfo
 	}
+	return stdout
+	
 }

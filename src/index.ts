@@ -73,7 +73,7 @@ server.get(`${config.route}/:path(*)`, async (req, res, next) => {
 										const fileData = await fs.promises.readFile(jsonFilePath)
 										const jsonData = JSON.parse(fileData.toString())
 										jsonData.cached = true
-										jsonData.version = config.version
+										// TODO: check version matches jsonData.version = config.version
 										res.json(jsonData)
 										sentCachedResult = true
 									}
@@ -88,39 +88,37 @@ server.get(`${config.route}/:path(*)`, async (req, res, next) => {
 						}
 
 						if (!sentCachedResult) {
-							const data = await getMediainfo(mountedFilePath, outputFormat)
-							if (data.error) {
-								console.error('Error computing mediainfo: ' + data.error)
-								error = data.error
-								next(data.error)
-							} else {
-								if (share.cached && outputFormat == config.defaultOutputFormatName) {
-									// create cache folder if it doesn't exist
-									try {
-										if (!fs.existsSync(jsonFolderPath)) {
-											fs.mkdirSync(jsonFolderPath, { recursive: true })
-										}
-									} catch (err) {
-										console.error('Error creating cache folder', err)
-										next(err)
-									}
-									// save the result to file
-									try {
-										await fs.promises.writeFile(jsonFilePath, JSON.stringify(data))
-									} catch (err) {
-										console.error('Error writing mediainfo file', err)
-									}
-								}
-								if (OutputFormats[outputFormat][1] == 'JSON') {
-									data.version = config.version
-									res.json(data)
-								} else if (OutputFormats[outputFormat][1] == 'XML') {
-									res.set('Content-Type', 'text/xml')
-									res.send(data)
-								} else {
-									res.send(data)
-								}
+							const data = await getMediainfo(mountedFilePath, outputFormat).catch((err) => {
+                                console.error('Error computing mediainfo: ' + err)
+                                return next(err)
+                            })
+
+							if (share.cached && outputFormat == config.defaultOutputFormatName) {
+                                // create cache folder if it doesn't exist
+                                try {
+                                    if (!fs.existsSync(jsonFolderPath)) {
+                                        fs.mkdirSync(jsonFolderPath, { recursive: true })
+                                    }
+                                } catch (err) {
+                                    console.error('Error creating cache folder', err)
+                                    return next(err)
+                                }
+                                // save the result to file
+                                try {
+                                    await fs.promises.writeFile(jsonFilePath, JSON.stringify(data))
+                                } catch (err) {
+                                    console.error('Error writing mediainfo file', err)
+                                }
 							}
+							if (OutputFormats[outputFormat][1] == 'JSON') {
+								res.json({mediainfo: data, version: config.version})
+							} else if (OutputFormats[outputFormat][1] == 'XML') {
+                                res.set('Content-Type', 'text/xml')
+                                res.send(data)
+							} else {
+								res.send(data)
+							}
+							
 						}
 					} else {
 						console.info('File not found: ' + mountedFilePath)
@@ -137,24 +135,21 @@ server.get(`${config.route}/:path(*)`, async (req, res, next) => {
 
 			try {
 				if (stringIsAValidUrl(pathParam, ['http', 'https'])) {
-					const data = await getMediainfo(pathParam, outputFormat)
-					if (data.error) {
-						console.error('Error computing mediainfo: ' + data.error)
-						error = data.error
-						next(data.error)
-					} else {
-						console.info('Sending result')
-						foundMatchingMountedFile = true
-						if (outputFormat.format == 'JSON') {
-							data.version = config.version
-							res.json(data)
-						} else if (outputFormat.format == 'XML') {
-							res.set('Content-Type', 'text/xml')
-							res.send(data)
-						} else {
-							res.send(data)
-						}
-					}
+					const data = await getMediainfo(pathParam, outputFormat).catch((err) => {
+                        console.error('Error computing mediainfo: ' + err)
+                        return next(err)
+                    })
+
+                    console.info('Sending result')
+                    foundMatchingMountedFile = true
+                    if (OutputFormats[outputFormat][1] == 'JSON') {
+                        res.json({mediainfo: data, version: config.version})
+                    } else if (OutputFormats[outputFormat][1] == 'XML') {
+                        res.set('Content-Type', 'text/xml')
+                        res.send(data)
+                    } else {
+                        res.send(data)
+                    }
 				}
 
 			} catch (error) {
